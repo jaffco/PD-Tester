@@ -13,6 +13,9 @@ static DaisySeed hardware;
 GPIO usb_pd_int_pin;
 I2CHandle i2c4;
 
+// Make i2c4 accessible to tcpm_driver
+extern I2CHandle* g_i2c_handle;
+
 void InitI2C4() {
   I2CHandle::Config i2c_config;
   i2c_config.periph = I2CHandle::Config::Peripheral::I2C_4;
@@ -25,9 +28,10 @@ void InitI2C4() {
 
 int main() {
   hardware.Init();
-  usb_pd_int_pin.Init(DaisySeed::GetPin(12), GPIO::Mode::INPUT);
-
-
+  usb_pd_int_pin.Init(DaisySeed::GetPin(27), GPIO::Mode::INPUT);
+  // Initialize I2C and set global handle for USB-PD driver
+  InitI2C4();
+  g_i2c_handle = &i2c4;
   hardware.StartLog(true); 
 
   System::Delay(200);
@@ -36,11 +40,20 @@ int main() {
   hardware.PrintLine("===========================================");
   hardware.PrintLine("");
 
+  hardware.PrintLine("Initializing USB-PD TCPM...");
+  // Initialize PD interrupt pin && I2C4 for TCPM driver
+  usb_pd_int_pin.Init(DaisySeed::GetPin(27), GPIO::Mode::INPUT);  
+  InitI2C4();
+  g_i2c_handle = &i2c4;
+  hardware.PrintLine("USB-PD TCPM initialized.");
+
+  hardware.PrintLine("Starting USB-PD TCPM state machine...");
   // Init tcpm
   tcpm_init(0);
   System::Delay(50);
   pd_init(0);
   System::Delay(50);
+  hardware.PrintLine("USB-PD TCPM state machine started.");
 
   // blink
   while (true) {
