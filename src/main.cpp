@@ -6,6 +6,10 @@
 const struct tcpc_config_t tcpc_config[CONFIG_USB_PD_PORT_COUNT] = {
   {0, fusb302_I2C_SLAVE_ADDR, &fusb302_tcpm_drv},
 };
+
+// PD capabilities tracking
+int pd_count = 0, pd_count_written = 0;
+uint32_t *pd_src_caps = nullptr;
 // USB-C Specific - TCPM end 1
 
 using namespace daisy;
@@ -56,10 +60,44 @@ int main() {
   hardware.PrintLine("USB-PD TCPM state machine started.");
 
   // blink
+  bool pd_header_printed = false;
   while (true) {
     if (usb_pd_int_pin.Read() == false) {
       tcpc_alert(0);
     }
+    
+    // Print PD capabilities one at a time to avoid blocking
+    if (pd_count_written < pd_count) {
+      // Print header when we start receiving PDOs
+      if (!pd_header_printed) {
+        hardware.PrintLine("");
+        hardware.PrintLine("===========================================");
+        hardware.PrintLine("    USB-C Power Delivery Capabilities");
+        hardware.PrintLine("===========================================");
+        pd_header_printed = true;
+      }
+      
+      uint32_t ma = 0, mv = 0;
+      uint32_t pdo = pd_src_caps[pd_count_written];
+      
+      pd_extract_pdo_power(pdo, &ma, &mv);
+      
+      float voltage = (float)mv / 1000.0f;
+      float current = (float)ma / 1000.0f;
+      
+      hardware.PrintLine("PDO %d: " FLT_FMT3 " V, " FLT_FMT3 " A", 
+                        pd_count_written + 1, 
+                        FLT_VAR3(voltage), 
+                        FLT_VAR3(current));
+      pd_count_written++;
+      
+      // Print footer after last PDO
+      if (pd_count_written >= pd_count) {
+        hardware.PrintLine("===========================================");
+        hardware.PrintLine("");
+      }
+    }
+    
     pd_run_state_machine(0);
     System::Delay(4);
   }

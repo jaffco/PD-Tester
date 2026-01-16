@@ -8,6 +8,10 @@
 #include "usb_pd_driver.h"
 #include "usb_pd.h"
 
+// External variables for PD capabilities tracking
+extern int pd_count, pd_count_written;
+extern uint32_t *pd_src_caps;
+
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(t) (sizeof(t) / sizeof(t[0]))
 #endif
@@ -243,3 +247,14 @@ void pd_check_pr_role(int port, int pr_role, int flags)
 #endif // if 0
 }
 
+void pd_process_source_cap_callback(int port, int cnt, uint32_t *src_caps)
+{
+	// Store the source capabilities for printing in main loop
+	// Only print header when we first receive capabilities
+	if (pd_count == 0 && cnt > 0) {
+		// Header will be printed in main when first PDO is displayed
+	}
+	pd_count = cnt;
+	pd_src_caps = src_caps;
+	pd_count_written = 0;
+}
