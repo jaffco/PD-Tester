@@ -1,3 +1,9 @@
 [submodule "libDaisy"]
 	path = libDaisy
 	url = https://github.com/jaffco/libDaisy
+[submodule "USB-C-Explorer"]
+	path = USB-C-Explorer
+	url = https://github.com/ReclaimerLabs/USB-C-Explorer
+[submodule "usb-c-arduino"]
+	path = usb-c-arduino
+	url = https://github.com/graycatlabs/usb-c-arduino
