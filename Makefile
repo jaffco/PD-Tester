@@ -1,8 +1,8 @@
 # Project Name
-TARGET = main
+TARGET = main_oled
 
 # Sources
-CPP_SOURCES = src/main.cpp src/tcpm_driver.cpp src/platform.cpp
+CPP_SOURCES = src/main_oled.cpp src/tcpm_driver.cpp src/platform.cpp
 
 # USB-PD C sources
 C_SOURCES = src/FUSB302.c \

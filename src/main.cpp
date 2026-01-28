@@ -12,6 +12,10 @@ int pd_count = 0, pd_count_written = 0;
 uint32_t *pd_src_caps = nullptr;
 // USB-C Specific - TCPM end 1
 
+// Type-C current tracking
+uint32_t last_typec_current = 0;
+bool typec_header_printed = false;
+
 using namespace daisy;
 static DaisySeed hardware;
 GPIO usb_pd_int_pin;
@@ -75,6 +79,7 @@ int main() {
         hardware.PrintLine("    USB-C Power Delivery Capabilities");
         hardware.PrintLine("===========================================");
         pd_header_printed = true;
+        typec_header_printed = false;  // Reset Type-C header when PD is detected
       }
       
       uint32_t ma = 0, mv = 0;
@@ -95,6 +100,35 @@ int main() {
       if (pd_count_written >= pd_count) {
         hardware.PrintLine("===========================================");
         hardware.PrintLine("");
+      }
+    } else if (pd_count == 0) {
+      // No PD negotiation - check for Type-C current at 5V
+      uint32_t typec_current = pd_get_typec_current_limit(0);
+      
+      if (typec_current > 0 && typec_current != last_typec_current) {
+        // Type-C current changed
+        if (!typec_header_printed) {
+          hardware.PrintLine("");
+          hardware.PrintLine("===========================================");
+          hardware.PrintLine("   Type-C Current @ 5V (No PD Negotiation)");
+          hardware.PrintLine("===========================================");
+          typec_header_printed = true;
+        }
+        
+        float current_a = (float)typec_current / 1000.0f;
+        hardware.PrintLine("Type-C Current: " FLT_FMT3 " A (5.0 V)", 
+                          FLT_VAR3(current_a));
+        hardware.PrintLine("===========================================");
+        hardware.PrintLine("");
+        
+        last_typec_current = typec_current;
+      } else if (typec_current == 0 && last_typec_current > 0) {
+        // Lost connection
+        hardware.PrintLine("");
+        hardware.PrintLine("=== USB-C Connection Lost ===");
+        hardware.PrintLine("");
+        typec_header_printed = false;
+        last_typec_current = 0;
       }
     }
     

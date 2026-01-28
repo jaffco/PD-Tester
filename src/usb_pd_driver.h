@@ -14,6 +14,7 @@ extern "C" {
 #endif
 
 #include "usb_pd.h"
+#include "usb_pd_tcpm.h"
 
 #include <stdint.h>
 
@@ -72,6 +73,12 @@ void pd_power_supply_reset(int port);
 
 // Get the current timestamp from the system timer.
 timestamp_t get_time(void);
+
+// Get CC pin voltages for Type-C current detection
+void pd_get_cc_voltage(int port, int *cc1, int *cc2);
+
+// Calculate Type-C current limit based on CC voltages (in mA)
+uint32_t pd_get_typec_current_limit(int port);
 
 /* Standard macros / definitions */
 #ifndef MAX

@@ -38,8 +38,8 @@ const int pd_src_pdo_cnt = ARRAY_SIZE(pd_src_pdo);
 
 const uint32_t pd_snk_pdo[] = {
 	PDO_FIXED(5000, 500, PDO_FIXED_FLAGS),
-	PDO_FIXED(9000, 500, PDO_FIXED_FLAGS),
-	PDO_FIXED(20000, 500, PDO_FIXED_FLAGS),
+	// PDO_FIXED(9000, 500, PDO_FIXED_FLAGS),
+	// PDO_FIXED(20000, 500, PDO_FIXED_FLAGS),
 };
 const int pd_snk_pdo_cnt = ARRAY_SIZE(pd_snk_pdo);
 
@@ -257,4 +257,41 @@ void pd_process_source_cap_callback(int port, int cnt, uint32_t *src_caps)
 	pd_count = cnt;
 	pd_src_caps = src_caps;
 	pd_count_written = 0;
+}
+
+// Get CC pin voltages for Type-C current detection
+void pd_get_cc_voltage(int port, int *cc1, int *cc2)
+{
+	tcpm_get_cc(port, cc1, cc2);
+}
+
+// Calculate Type-C current limit based on CC voltages (in mA)
+// Returns the current limit in mA at 5V (standard USB-C Type-C current)
+uint32_t pd_get_typec_current_limit(int port)
+{
+	int cc1, cc2;
+	
+	tcpm_get_cc(port, &cc1, &cc2);
+	
+	// Get polarity information - we need the pd[] structure
+	// For now, we'll check both cc1 and cc2 to determine the source
+	
+	// Type-C Current limits based on CC voltage levels:
+	// SNK_3_0 (3.0V) => 3000 mA for standard sources
+	// SNK_1_5 (1.5V) => 1500 mA for medium sources  
+	// SNK_DEF (0.55V) => 500 mA for low-power sources (USB default)
+	// OPEN => 0 mA (no connection)
+	
+	if (cc1 == TYPEC_CC_VOLT_SNK_3_0 || cc2 == TYPEC_CC_VOLT_SNK_3_0) {
+		return 3000;  // 3A
+	} else if (cc1 == TYPEC_CC_VOLT_SNK_1_5 || cc2 == TYPEC_CC_VOLT_SNK_1_5) {
+		return 1500;  // 1.5A
+	} else if (cc1 == TYPEC_CC_VOLT_SNK_DEF || cc2 == TYPEC_CC_VOLT_SNK_DEF) {
+		return 500;   // 0.5A (USB default)
+	} else if (cc1 == TYPEC_CC_VOLT_RD || cc2 == TYPEC_CC_VOLT_RD) {
+		// Rd without specific level indicates default 500mA
+		return 500;
+	}
+	
+	return 0;  // No valid connection
 }
