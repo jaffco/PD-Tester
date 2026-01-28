@@ -17,8 +17,14 @@ uint32_t *pd_src_caps = nullptr;
 // Type-C current tracking
 uint32_t last_typec_current = 0;
 bool info_displayed = false;
+bool pd_displayed = false;  // Track if we've already displayed PD info for this connection
 uint32_t startup_time = 0;
 const uint32_t PD_NEGOTIATION_TIMEOUT_MS = 2000;  // Wait 2 seconds for PD before showing Type-C
+
+// Saved best PDO values (so they don't change when source sends new caps)
+uint32_t saved_best_voltage_mv = 0;
+uint32_t saved_best_current_ma = 0;
+int saved_best_pdo_index = 0;
 
 using namespace daisy;
 using DisplayType = OledDisplay<SSD13124WireSpi128x32Driver>;
@@ -51,41 +57,42 @@ void InitOLED() {
   display.Update();
 }
 
-void DisplayPDCapability(uint8_t pdo_index, uint32_t pdo) {
+void DisplayPDValues(uint8_t pdo_index, uint32_t voltage_mv, uint32_t current_ma) {
   // Clear display with double-buffer approach
   display.Fill(false);
   display.Update();
   System::Delay(20);
   display.Fill(false);
   
-  uint32_t ma = 0, mv = 0;
-  pd_extract_pdo_power(pdo, &ma, &mv);
-  
-  float voltage = (float)mv / 1000.0f;
-  float current = (float)ma / 1000.0f;
-  
   // Title
   display.SetCursor(0, 0);
   display.WriteString("USB-C Power Delivery", Font_5x8, true);
   
-  // PDO info - use integer math to avoid float formatting issues
+  // PDO info - use integer math
   display.SetCursor(0, 11);
   char buf[24];
-  int volts_int = (int)voltage;
-  int volts_dec = (int)((voltage - volts_int) * 10 + 0.5f);
-  int amps_int = (int)current;
-  int amps_dec = (int)((current - amps_int) * 100 + 0.5f);
+  int volts_int = voltage_mv / 1000;
+  int volts_dec = (voltage_mv % 1000) / 100;
+  int amps_int = current_ma / 1000;
+  int amps_dec = (current_ma % 1000) / 10;
   snprintf(buf, sizeof(buf), "PDO%d: %d.%dV %d.%02dA", pdo_index, volts_int, volts_dec, amps_int, amps_dec);
   display.WriteString(buf, Font_5x8, true);
   
-  // Power calculation
-  int power_w = (int)((voltage * current) + 0.5f);
+  // Power calculation (mV * mA / 1000000 = W), with rounding
+  uint32_t power_mw = (voltage_mv / 1000) * current_ma;  // Simplified: V * mA = mW
+  int power_w = (power_mw + 500) / 1000;  // Round to nearest watt
   display.SetCursor(0, 22);
   snprintf(buf, sizeof(buf), "Power: %dW", power_w);
   display.WriteString(buf, Font_5x8, true);
   
   display.Update();
   System::Delay(50);
+}
+
+void DisplayPDCapability(uint8_t pdo_index, uint32_t pdo) {
+  uint32_t ma = 0, mv = 0;
+  pd_extract_pdo_power(pdo, &ma, &mv);
+  DisplayPDValues(pdo_index, mv, ma);
 }
 
 void DisplayTypeCCurrent(uint32_t current_ma) {
@@ -190,27 +197,59 @@ int main() {
     uint32_t now = System::GetNow();
     
     // Print and display PD capabilities (PD takes priority)
-    if (pd_count_written < pd_count) {
-      uint32_t pdo = pd_src_caps[pd_count_written];
+    if (pd_count > 0 && !pd_displayed) {
+      // Wait a bit for all PDOs to arrive before processing
+      System::Delay(500);
       
-      // Display on OLED
-      DisplayPDCapability(pd_count_written + 1, pdo);
+      // Find the best 5V PDO (highest current at 5V)
+      int best_5v_index = -1;
+      uint32_t best_5v_current = 0;
       
-      // Also print to serial
-      uint32_t ma = 0, mv = 0;
-      pd_extract_pdo_power(pdo, &ma, &mv);
-      float voltage = (float)mv / 1000.0f;
-      float current = (float)ma / 1000.0f;
-      hardware.PrintLine("PDO %d: " FLT_FMT3 " V, " FLT_FMT3 " A", 
-                        pd_count_written + 1, 
-                        FLT_VAR3(voltage), 
-                        FLT_VAR3(current));
+      for (int i = 0; i < pd_count; i++) {
+        uint32_t ma = 0, mv = 0;
+        pd_extract_pdo_power(pd_src_caps[i], &ma, &mv);
+        
+        // Only consider 5V PDOs (allow 4.5V-5.5V range for tolerance)
+        if (mv >= 4500 && mv <= 5500) {
+          if (ma > best_5v_current) {
+            best_5v_current = ma;
+            best_5v_index = i;
+          }
+        }
+        
+        // Print all PDOs to serial for reference
+        float voltage = (float)mv / 1000.0f;
+        float current = (float)ma / 1000.0f;
+        hardware.PrintLine("PDO %d: " FLT_FMT3 " V, " FLT_FMT3 " A", 
+                          i + 1, 
+                          FLT_VAR3(voltage), 
+                          FLT_VAR3(current));
+      }
       
-      pd_count_written++;
+      // Save and display the best 5V PDO on OLED
+      if (best_5v_index >= 0) {
+        uint32_t ma = 0, mv = 0;
+        pd_extract_pdo_power(pd_src_caps[best_5v_index], &ma, &mv);
+        saved_best_voltage_mv = mv;
+        saved_best_current_ma = ma;
+        saved_best_pdo_index = best_5v_index + 1;
+        DisplayPDValues(saved_best_pdo_index, saved_best_voltage_mv, saved_best_current_ma);
+        hardware.PrintLine("Selected: PDO %d (best 5V) - %dmV %dmA", saved_best_pdo_index, mv, ma);
+      } else {
+        // No 5V PDO found, show first one as fallback
+        uint32_t ma = 0, mv = 0;
+        pd_extract_pdo_power(pd_src_caps[0], &ma, &mv);
+        saved_best_voltage_mv = mv;
+        saved_best_current_ma = ma;
+        saved_best_pdo_index = 1;
+        hardware.PrintLine("No 5V PDO found!");
+        DisplayPDValues(saved_best_pdo_index, saved_best_voltage_mv, saved_best_current_ma);
+      }
+      
+      pd_count_written = pd_count;  // Mark all as processed
       info_displayed = true;
+      pd_displayed = true;  // Don't display again for this connection
       waiting_for_pd = false;
-      
-      System::Delay(2000);  // Show each PDO for 2 seconds
     } else if (pd_count > 0 && typec_current > 0) {
       // PD negotiation complete, we have PDOs and still connected - stay on last PDO
     } else if (typec_current > 0) {
@@ -248,6 +287,7 @@ int main() {
         // Reset PD state for next connection
         pd_count = 0;
         pd_count_written = 0;
+        pd_displayed = false;
       }
     }
     
